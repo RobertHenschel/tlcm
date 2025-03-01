@@ -1,4 +1,7 @@
 import sys
+import shutil
+import subprocess
+import platform
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QMenuBar, QMessageBox, 
                             QDialog, QVBoxLayout, QLabel)
 from PyQt5.QtGui import QKeySequence
@@ -15,7 +18,7 @@ class AboutDialog(QDialog):
         
         title = QLabel("ThinLinc Connection Manager")
         title.setAlignment(Qt.AlignCenter)
-        version = QLabel("Version 0.1")
+        version = QLabel("Version 0.2")
         version.setAlignment(Qt.AlignCenter)
         copyright = QLabel("© 2025 Robert Henschel")
         copyright.setAlignment(Qt.AlignCenter)
@@ -45,12 +48,59 @@ class MainWindow(QMainWindow):
         
         # Help menu
         help_menu = menubar.addMenu('&Help')  # Alt+H will open this menu
+        detect_client = help_menu.addAction('&Detect ThinLinc Client')
+        detect_client.triggered.connect(self.detect_client)
+        help_menu.addSeparator()
         about_action = help_menu.addAction('&About')  # Alt+H, Alt+A
         about_action.triggered.connect(self.show_about)
         
         # Restore previous window geometry or use default
         self.restore_window_settings()
         
+    def detect_client(self):
+        if platform.system() != 'Linux':
+            QMessageBox.warning(self,
+                "Unsupported Platform",
+                "ThinLinc client detection is currently only supported on Linux.")
+            return
+            
+        client_path = shutil.which('tlclient')
+        if not client_path:
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Critical)
+            msg.setWindowTitle("ThinLinc Client Not Found")
+            msg.setText("Could not find 'tlclient' in PATH.\n\n"
+                       "Please install the ThinLinc client package.\n\n"
+                       "The client package can be downloaded from:")
+            msg.setInformativeText("<a href='https://www.cendio.com/thinlinc/download/'>https://www.cendio.com/thinlinc/download/</a>")
+            msg.setTextFormat(Qt.RichText)
+            msg.exec_()
+            return
+            
+        try:
+            # Try to run tlclient --version
+            result = subprocess.run([client_path, '--version'], 
+                                  capture_output=True, 
+                                  text=True,
+                                  timeout=5)
+            if result.returncode == 0:
+                QMessageBox.information(self,
+                    "ThinLinc Client Found",
+                    f"ThinLinc client found at:\n{client_path}\n\n"
+                    f"Version information:\n{result.stdout.strip()}")
+            else:
+                QMessageBox.warning(self,
+                    "ThinLinc Client Error",
+                    f"ThinLinc client found but returned error:\n{result.stderr.strip()}")
+        except subprocess.TimeoutExpired:
+            QMessageBox.warning(self,
+                "ThinLinc Client Error",
+                "ThinLinc client check timed out.")
+        except Exception as e:
+            QMessageBox.critical(self,
+                "ThinLinc Client Error",
+                f"Error checking ThinLinc client:\n{str(e)}")
+    
     def show_about(self):
         dialog = AboutDialog(self)
         dialog.exec_()
