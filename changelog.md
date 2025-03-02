@@ -1,5 +1,10 @@
+# Version0.4
+- Editing connections now possible
+- Delete connections now possible
+
 # Version 0.3.1
 - Added Auto Connect checkbox for ssh key connections
+
 # Version 0.3
 - Connections display in main window
 - Create a connection

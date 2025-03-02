@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QMenuBar, QMessageBox,
                             QDialog, QVBoxLayout, QLabel, QAction, QLineEdit,
                             QComboBox, QFormLayout, QFileDialog, QPushButton,
                             QStackedWidget, QWidget, QHBoxLayout, QDialogButtonBox,
-                            QGridLayout, QScrollArea, QCheckBox)
+                            QGridLayout, QScrollArea, QCheckBox, QMenu)
 from PyQt5.QtGui import QKeySequence, QIcon
 from PyQt5.QtCore import QSettings, Qt
 
@@ -23,7 +23,7 @@ class AboutDialog(QDialog):
         
         title = QLabel("ThinLinc Connection Manager")
         title.setAlignment(Qt.AlignCenter)
-        version = QLabel("Version 0.3.1")
+        version = QLabel("Version 0.4")
         version.setAlignment(Qt.AlignCenter)
         copyright = QLabel("© 2025 Robert Henschel")
         copyright.setAlignment(Qt.AlignCenter)
@@ -35,10 +35,11 @@ class AboutDialog(QDialog):
         self.setLayout(layout)
 
 class AddConnectionDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, connection_data=None):
         super().__init__(parent)
-        self.setWindowTitle("Add Connection")
+        self.setWindowTitle("Edit Connection" if connection_data else "Add Connection")
         self.setModal(True)
+        self.original_name = connection_data['name'] if connection_data else None  # Store original name for edit mode
         
         layout = QFormLayout()
         
@@ -98,6 +99,22 @@ class AddConnectionDialog(QDialog):
         layout.addRow(button_box)
         self.setLayout(layout)
         
+        # If editing, populate fields with existing data
+        if connection_data:
+            self.name_edit.setText(connection_data['name'])
+            self.server_edit.setText(connection_data['server'])
+            self.username_edit.setText(connection_data['username'])
+            
+            # Set auth type
+            index = self.auth_type.findText(connection_data['auth_type'])
+            if index >= 0:
+                self.auth_type.setCurrentIndex(index)
+            
+            # Set auth data
+            if connection_data['auth_type'] == "SSH Key":
+                self.key_path_edit.setText(connection_data['auth_data'])
+                self.auto_connect.setChecked(connection_data.get('auto_connect', False))
+
     def on_auth_type_changed(self, text):
         if text == "Password":
             self.auth_stack.setCurrentIndex(0)
@@ -135,8 +152,9 @@ class AddConnectionDialog(QDialog):
             return
 
         # Create connection data
+        new_name = self.name_edit.text().strip()
         connection = {
-            "name": self.name_edit.text().strip(),
+            "name": new_name,
             "server": self.server_edit.text().strip(),
             "username": self.username_edit.text().strip(),
             "auth_type": auth_type,
@@ -151,14 +169,26 @@ class AddConnectionDialog(QDialog):
                 with open('connections.json', 'r') as f:
                     connections = json.load(f)
 
-            # Check for duplicate names
-            if any(conn['name'] == connection['name'] for conn in connections):
-                QMessageBox.warning(self, "Validation Error", 
-                                  "A connection with this name already exists")
-                return
-
-            # Add new connection
-            connections.append(connection)
+            # Check for duplicate names only for new connections or if name changed during edit
+            if self.original_name is None:  # New connection
+                if any(conn['name'] == new_name for conn in connections):
+                    QMessageBox.warning(self, "Validation Error", 
+                                      "A connection with this name already exists")
+                    return
+                # Add new connection
+                connections.append(connection)
+            else:  # Editing existing connection
+                # Only check for duplicates if name was changed
+                if new_name != self.original_name:
+                    if any(conn['name'] == new_name for conn in connections):
+                        QMessageBox.warning(self, "Validation Error", 
+                                          "A connection with this name already exists")
+                        return
+                # Update existing connection
+                for i, conn in enumerate(connections):
+                    if conn['name'] == self.original_name:
+                        connections[i] = connection
+                        break
 
             # Save back to file
             with open('connections.json', 'w') as f:
@@ -173,7 +203,7 @@ class AddConnectionDialog(QDialog):
 class ConnectionWidget(QWidget):
     def __init__(self, connection_data, parent=None):
         super().__init__(parent)
-        self.connection_data = connection_data  # Store full connection data
+        self.connection_data = connection_data
         layout = QVBoxLayout()
         layout.setAlignment(Qt.AlignCenter)
         
@@ -192,6 +222,10 @@ class ConnectionWidget(QWidget):
         
         # Make widget clickable
         self.setCursor(Qt.PointingHandCursor)
+        
+        # Add context menu
+        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.customContextMenuRequested.connect(self.show_context_menu)
         
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -265,6 +299,88 @@ class ConnectionWidget(QWidget):
         except Exception as e:
             QMessageBox.critical(None, "Connection Error",
                                f"Failed to launch connection:\n{str(e)}")
+
+    def show_context_menu(self, position):
+        menu = QMenu(self)
+        edit_action = menu.addAction("Edit")
+        delete_action = menu.addAction("Delete")
+        action = menu.exec_(self.mapToGlobal(position))
+        
+        if action == edit_action:
+            self.edit_connection()
+        elif action == delete_action:
+            self.delete_connection()
+            
+    def edit_connection(self):
+        dialog = AddConnectionDialog(self, self.connection_data)
+        if dialog.exec_() == QDialog.Accepted:
+            # Update connection in connections.json
+            try:
+                with open('connections.json', 'r') as f:
+                    connections = json.load(f)
+                
+                # Find and update the connection
+                for i, conn in enumerate(connections):
+                    if conn['name'] == self.connection_data['name']:
+                        connections[i] = {
+                            "name": dialog.name_edit.text().strip(),
+                            "server": dialog.server_edit.text().strip(),
+                            "username": dialog.username_edit.text().strip(),
+                            "auth_type": dialog.auth_type.currentText(),
+                            "auth_data": dialog.key_path_edit.text() if dialog.auth_type.currentText() == "SSH Key" else "",
+                            "auto_connect": dialog.auto_connect.isChecked() if dialog.auth_type.currentText() == "SSH Key" else False
+                        }
+                        break
+                
+                # Save updated connections
+                with open('connections.json', 'w') as f:
+                    json.dump(connections, f, indent=4)
+                
+                # Refresh the main window's connection grid
+                if isinstance(self.parent(), QWidget):
+                    main_window = self.parent().window()
+                    if isinstance(main_window, MainWindow):
+                        main_window.load_connections()
+                
+            except Exception as e:
+                QMessageBox.critical(self, "Error", 
+                                   f"Failed to update connection:\n{str(e)}")
+
+    def delete_connection(self):
+        # Ask for confirmation
+        reply = QMessageBox.question(self, "Confirm Delete",
+                                   f"Are you sure you want to delete the connection '{self.connection_data['name']}'?",
+                                   QMessageBox.Yes | QMessageBox.No,
+                                   QMessageBox.No)
+        
+        if reply == QMessageBox.Yes:
+            try:
+                # Delete the config file if it exists
+                config_name = f"tlclient_{self.connection_data['name'].replace(' ', '_')}.conf"
+                if os.path.exists(config_name):
+                    os.remove(config_name)
+                
+                # Remove from connections.json
+                with open('connections.json', 'r') as f:
+                    connections = json.load(f)
+                
+                # Filter out the connection to delete
+                connections = [conn for conn in connections 
+                             if conn['name'] != self.connection_data['name']]
+                
+                # Save updated connections
+                with open('connections.json', 'w') as f:
+                    json.dump(connections, f, indent=4)
+                
+                # Refresh the main window's connection grid
+                if isinstance(self.parent(), QWidget):
+                    main_window = self.parent().window()
+                    if isinstance(main_window, MainWindow):
+                        main_window.load_connections()
+                
+            except Exception as e:
+                QMessageBox.critical(self, "Error", 
+                                   f"Failed to delete connection:\n{str(e)}")
 
 class MainWindow(QMainWindow):
     def __init__(self):
