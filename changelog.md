@@ -1,6 +1,7 @@
 # Version 0.4.1
 - Added error handling for window settings
 - Added error handling for connection file
+- Added Linux specific code to launch tlclient and ssh key connections
 
 # Version0.4
 - Editing connections now possible

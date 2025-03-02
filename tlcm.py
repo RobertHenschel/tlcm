@@ -125,10 +125,16 @@ class AddConnectionDialog(QDialog):
             self.auto_connect.show()
             
     def browse_key(self):
+        if platform.system() != 'Linux':
+            QMessageBox.warning(self,
+                "Unsupported Platform",
+                "SSH key authentication is currently only supported on Linux.")
+            return
+            
         file_name, _ = QFileDialog.getOpenFileName(
             self,
             "Select SSH Key",
-            "",
+            os.path.expanduser("~/.ssh"),  # Default to Linux SSH directory
             "All Files (*)")
         if file_name:
             self.key_path_edit.setText(file_name)
@@ -233,6 +239,13 @@ class ConnectionWidget(QWidget):
             
     def launch_connection(self):
         try:
+            # Move platform check to the start
+            if platform.system() != 'Linux':
+                QMessageBox.warning(self,
+                    "Unsupported Platform",
+                    "ThinLinc connections are currently only supported on Linux.")
+                return
+            
             # Check if tlclient exists in PATH first
             tlclient_path = shutil.which('tlclient')
             if not tlclient_path:
