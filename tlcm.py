@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QMenuBar, QMessageBox,
                             QDialog, QVBoxLayout, QLabel, QAction, QLineEdit,
                             QComboBox, QFormLayout, QFileDialog, QPushButton,
                             QStackedWidget, QWidget, QHBoxLayout, QDialogButtonBox,
-                            QGridLayout, QScrollArea)
+                            QGridLayout, QScrollArea, QCheckBox)
 from PyQt5.QtGui import QKeySequence, QIcon
 from PyQt5.QtCore import QSettings, Qt
 
@@ -23,7 +23,7 @@ class AboutDialog(QDialog):
         
         title = QLabel("ThinLinc Connection Manager")
         title.setAlignment(Qt.AlignCenter)
-        version = QLabel("Version 0.2")
+        version = QLabel("Version 0.3.1")
         version.setAlignment(Qt.AlignCenter)
         copyright = QLabel("© 2025 Robert Henschel")
         copyright.setAlignment(Qt.AlignCenter)
@@ -81,20 +81,31 @@ class AddConnectionDialog(QDialog):
         
         layout.addRow("", self.auth_stack)
         
+        # Add Auto Connect checkbox before the buttons
+        self.auto_connect = QCheckBox("Auto Connect")
+        self.auto_connect_row = layout.rowCount()  # Remember the row number
+        layout.addRow("", self.auto_connect)
+        
+        # Initially hide auto-connect since Password is default
+        self.auto_connect.hide()
+        
         # Add OK and Cancel buttons
         button_box = QDialogButtonBox(
             QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
-        layout.addRow(button_box)
         
+        layout.addRow(button_box)
         self.setLayout(layout)
         
     def on_auth_type_changed(self, text):
         if text == "Password":
             self.auth_stack.setCurrentIndex(0)
+            self.auto_connect.hide()
+            self.auto_connect.setChecked(False)  # Uncheck when hidden
         else:
             self.auth_stack.setCurrentIndex(1)
+            self.auto_connect.show()
             
     def browse_key(self):
         file_name, _ = QFileDialog.getOpenFileName(
@@ -129,7 +140,8 @@ class AddConnectionDialog(QDialog):
             "server": self.server_edit.text().strip(),
             "username": self.username_edit.text().strip(),
             "auth_type": auth_type,
-            "auth_data": self.key_path_edit.text() if auth_type == "SSH Key" else ""
+            "auth_data": self.key_path_edit.text() if auth_type == "SSH Key" else "",
+            "auto_connect": self.auto_connect.isChecked() if auth_type == "SSH Key" else False
         }
 
         try:
@@ -243,7 +255,10 @@ class ConnectionWidget(QWidget):
             
             # Launch tlclient based on platform
             if platform.system() == 'Linux':
-                subprocess.Popen([tlclient_path, '-C', config_name])
+                cmd = [tlclient_path, '-C', config_name]
+                if self.connection_data.get('auto_connect', False):
+                    cmd.extend(['-p', '1'])
+                subprocess.Popen(cmd)
             else:
                 raise NotImplementedError(f"Platform {platform.system()} is not supported yet")
             
