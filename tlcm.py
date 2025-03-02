@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QMenuBar, QMessageBox,
                             QStackedWidget, QWidget, QHBoxLayout, QDialogButtonBox,
                             QGridLayout, QScrollArea, QCheckBox, QMenu)
 from PyQt5.QtGui import QKeySequence, QIcon
-from PyQt5.QtCore import QSettings, Qt
+from PyQt5.QtCore import QSettings, Qt, QSize, QPoint, QRect
 
 class AboutDialog(QDialog):
     def __init__(self, parent=None):
@@ -23,7 +23,7 @@ class AboutDialog(QDialog):
         
         title = QLabel("ThinLinc Connection Manager")
         title.setAlignment(Qt.AlignCenter)
-        version = QLabel("Version 0.4")
+        version = QLabel("Version 0.4.1")
         version.setAlignment(Qt.AlignCenter)
         copyright = QLabel("© 2025 Robert Henschel")
         copyright.setAlignment(Qt.AlignCenter)
@@ -498,20 +498,54 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
         
     def save_window_settings(self):
-        self.settings.setValue('size', self.size())
-        self.settings.setValue('pos', self.pos())
+        try:
+            self.settings.setValue('size', self.size())
+            self.settings.setValue('pos', self.pos())
+            self.settings.sync()  # Force write to storage
+            
+            if self.settings.status() != QSettings.NoError:
+                raise Exception("Failed to save settings")
+                
+        except Exception as e:
+            QMessageBox.warning(self,
+                "Settings Warning",
+                f"Failed to save window settings:\n{str(e)}\n\n"
+                "Window position and size will not be remembered.")
         
     def restore_window_settings(self):
-        size = self.settings.value('size')
-        pos = self.settings.value('pos')
-        
-        if size is not None:
-            self.resize(size)
-        else:
-            self.setGeometry(100, 100, 800, 600)
+        try:
+            size = self.settings.value('size')
+            pos = self.settings.value('pos')
             
-        if pos is not None:
-            self.move(pos)
+            # Validate settings
+            if size is not None and not isinstance(size, QSize):
+                raise ValueError("Invalid size value in settings")
+            if pos is not None and not isinstance(pos, QPoint):
+                raise ValueError("Invalid position value in settings")
+            
+            # Get screen geometry
+            screen = QApplication.desktop().availableGeometry()
+            
+            if size is not None:
+                # Ensure window isn't larger than screen
+                size = size.boundedTo(screen.size())
+                self.resize(size)
+            else:
+                self.setGeometry(100, 100, 800, 600)
+            
+            if pos is not None:
+                # Ensure window is visible on screen
+                if not screen.contains(QRect(pos, size or self.size())):
+                    # Reset to default if window would be off-screen
+                    pos = QPoint(100, 100)
+                self.move(pos)
+                
+        except Exception as e:
+            QMessageBox.warning(self,
+                "Settings Warning",
+                f"Failed to restore window settings:\n{str(e)}\n\n"
+                "Using default window size and position.")
+            self.setGeometry(100, 100, 800, 600)
 
     def load_connections(self):
         # Clear existing widgets from grid
@@ -523,19 +557,63 @@ class MainWindow(QMainWindow):
         
         try:
             if os.path.exists('connections.json'):
-                with open('connections.json', 'r') as f:
-                    connections = json.load(f)
+                try:
+                    with open('connections.json', 'r') as f:
+                        connections = json.load(f)
+                    
+                    # Validate that we got a list
+                    if not isinstance(connections, list):
+                        raise ValueError("connections.json does not contain a list")
+                    
+                    # Add connections to grid
+                    for i, conn in enumerate(connections):
+                        # Validate required fields
+                        required_fields = ['name', 'server', 'username', 'auth_type']
+                        missing_fields = [field for field in required_fields if field not in conn]
+                        if missing_fields:
+                            raise ValueError(f"Connection {i+1} is missing required fields: {', '.join(missing_fields)}")
+                        
+                        row = i // 4  # 4 connections per row
+                        col = i % 4
+                        connection_widget = ConnectionWidget(conn)
+                        self.grid_layout.addWidget(connection_widget, row, col)
                 
-                # Add connections to grid
-                for i, conn in enumerate(connections):
-                    row = i // 4  # 4 connections per row
-                    col = i % 4
-                    connection_widget = ConnectionWidget(conn)  # Pass full connection data
-                    self.grid_layout.addWidget(connection_widget, row, col)
+                except json.JSONDecodeError as e:
+                    # Handle corrupted JSON file
+                    reply = QMessageBox.critical(self, 
+                        "Corrupted Configuration",
+                        "The connections.json file is corrupted.\n\n"
+                        "Would you like to reset it to an empty configuration?",
+                        QMessageBox.Yes | QMessageBox.No)
+                    
+                    if reply == QMessageBox.Yes:
+                        # Backup corrupted file
+                        backup_name = 'connections.json.backup'
+                        try:
+                            os.rename('connections.json', backup_name)
+                            QMessageBox.information(self,
+                                "Backup Created",
+                                f"The corrupted file has been backed up as '{backup_name}'")
+                            # Create new empty config
+                            with open('connections.json', 'w') as f:
+                                json.dump([], f)
+                        except Exception as backup_error:
+                            QMessageBox.critical(self,
+                                "Error",
+                                f"Failed to create backup:\n{str(backup_error)}")
+                    return
+                
+                except ValueError as e:
+                    # Handle invalid data structure
+                    QMessageBox.critical(self,
+                        "Invalid Configuration",
+                        f"The connections.json file contains invalid data:\n{str(e)}")
+                    return
         
         except Exception as e:
-            QMessageBox.critical(self, "Error", 
-                               f"Failed to load connections:\n{str(e)}")
+            QMessageBox.critical(self, 
+                "Error", 
+                f"Failed to load connections:\n{str(e)}")
 
     def add_connection(self):
         dialog = AddConnectionDialog(self)
