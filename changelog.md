@@ -1,3 +1,6 @@
+# Version 0.5.0
+- Added MacOS support
+
 # Version 0.4.1
 - Added error handling for window settings
 - Added error handling for connection file

@@ -23,7 +23,7 @@ class AboutDialog(QDialog):
         
         title = QLabel("ThinLinc Connection Manager")
         title.setAlignment(Qt.AlignCenter)
-        version = QLabel("Version 0.4.1")
+        version = QLabel("Version 0.5.0")  # Updated version number
         version.setAlignment(Qt.AlignCenter)
         copyright = QLabel("© 2025 Robert Henschel")
         copyright.setAlignment(Qt.AlignCenter)
@@ -125,16 +125,16 @@ class AddConnectionDialog(QDialog):
             self.auto_connect.show()
             
     def browse_key(self):
-        if platform.system() != 'Linux':
+        if platform.system() not in ['Linux', 'Darwin']:  # Darwin is MacOS
             QMessageBox.warning(self,
                 "Unsupported Platform",
-                "SSH key authentication is currently only supported on Linux.")
+                "SSH key authentication is currently only supported on Linux and MacOS.")
             return
             
         file_name, _ = QFileDialog.getOpenFileName(
             self,
             "Select SSH Key",
-            os.path.expanduser("~/.ssh"),  # Default to Linux SSH directory
+            os.path.expanduser("~/.ssh"),  # Default SSH directory works for both Linux and MacOS
             "All Files (*)")
         if file_name:
             self.key_path_edit.setText(file_name)
@@ -240,14 +240,26 @@ class ConnectionWidget(QWidget):
     def launch_connection(self):
         try:
             # Move platform check to the start
-            if platform.system() != 'Linux':
+            if platform.system() not in ['Linux', 'Darwin']:
                 QMessageBox.warning(self,
                     "Unsupported Platform",
-                    "ThinLinc connections are currently only supported on Linux.")
+                    "ThinLinc connections are currently only supported on Linux and MacOS.")
                 return
             
             # Check if tlclient exists in PATH first
             tlclient_path = shutil.which('tlclient')
+            
+            # On MacOS, check common installation locations if not found in PATH
+            if not tlclient_path and platform.system() == 'Darwin':
+                common_paths = [
+                    '/Applications/ThinLinc Client.app/Contents/MacOS/tlclient',
+                    os.path.expanduser('~/Applications/ThinLinc Client.app/Contents/MacOS/tlclient')
+                ]
+                for path in common_paths:
+                    if os.path.exists(path) and os.access(path, os.X_OK):
+                        tlclient_path = path
+                        break
+            
             if not tlclient_path:
                 msg = QMessageBox(self)
                 msg.setIcon(QMessageBox.Critical)
@@ -305,6 +317,11 @@ class ConnectionWidget(QWidget):
                 cmd = [tlclient_path, '-C', config_name]
                 if self.connection_data.get('auto_connect', False):
                     cmd.extend(['-p', '1'])
+                subprocess.Popen(cmd)
+            elif platform.system() == 'Darwin':
+                cmd = ['open', '-n', '-a', 'ThinLinc Client', config_name]
+                if self.connection_data.get('auto_connect', False):
+                    cmd.extend(['--args', '-p', '1'])
                 subprocess.Popen(cmd)
             else:
                 raise NotImplementedError(f"Platform {platform.system()} is not supported yet")
@@ -458,13 +475,25 @@ class MainWindow(QMainWindow):
         self.restore_window_settings()
         
     def detect_client(self):
-        if platform.system() != 'Linux':
+        if platform.system() not in ['Linux', 'Darwin']:
             QMessageBox.warning(self,
                 "Unsupported Platform",
-                "ThinLinc client detection is currently only supported on Linux.")
+                "ThinLinc client detection is currently only supported on Linux and MacOS.")
             return
             
         client_path = shutil.which('tlclient')
+        
+        # On MacOS, check common installation locations if not found in PATH
+        if not client_path and platform.system() == 'Darwin':
+            common_paths = [
+                '/Applications/ThinLinc Client.app/Contents/MacOS/tlclient',
+                os.path.expanduser('~/Applications/ThinLinc Client.app/Contents/MacOS/tlclient')
+            ]
+            for path in common_paths:
+                if os.path.exists(path) and os.access(path, os.X_OK):
+                    client_path = path
+                    break
+        
         if not client_path:
             msg = QMessageBox(self)
             msg.setIcon(QMessageBox.Critical)
@@ -476,22 +505,28 @@ class MainWindow(QMainWindow):
             msg.setTextFormat(Qt.RichText)
             msg.exec_()
             return
-            
+        
         try:
-            # Try to run tlclient --version
-            result = subprocess.run([client_path, '--version'], 
+            # On Linux, try to run tlclient --version
+            if platform.system() == 'Linux':
+                result = subprocess.run([client_path, '--version'], 
                                   capture_output=True, 
                                   text=True,
                                   timeout=5)
-            if result.returncode == 0:
-                QMessageBox.information(self,
-                    "ThinLinc Client Found",
-                    f"ThinLinc client found at:\n{client_path}\n\n"
-                    f"Version information:\n{result.stdout.strip()}")
+                if result.returncode == 0:
+                    QMessageBox.information(self,
+                        "ThinLinc Client Found",
+                        f"ThinLinc client found at:\n{client_path}\n\n"
+                        f"Version information:\n{result.stdout.strip()}")
+                else:
+                    QMessageBox.warning(self,
+                        "ThinLinc Client Error",
+                        f"ThinLinc client found but returned error:\n{result.stderr.strip()}")
             else:
-                QMessageBox.warning(self,
-                    "ThinLinc Client Error",
-                    f"ThinLinc client found but returned error:\n{result.stderr.strip()}")
+                if platform.system() == 'Darwin':
+                    QMessageBox.information(self,
+                        "ThinLinc Client Found",
+                        f"ThinLinc client found at:\n{client_path}\n\n")
         except subprocess.TimeoutExpired:
             QMessageBox.warning(self,
                 "ThinLinc Client Error",
