@@ -63,6 +63,9 @@ final class ConnectionsStore: ObservableObject {
     }
 
     func remove(at offsets: IndexSet) {
+        for i in offsets {
+            deleteIcon(for: connections[i])
+        }
         connections.remove(atOffsets: offsets)
         save()
     }
@@ -76,5 +79,21 @@ final class ConnectionsStore: ObservableObject {
 
     func saveSettings() {
         save()
+    }
+
+    // MARK: - Icon management
+
+    /// URL for the icon file for a given connection.
+    /// Named after the JSON file's stem: e.g. `tlcm-connections-<uuid>.png`
+    /// so all files share the same location and sort together.
+    func iconURL(for connection: Connection) -> URL {
+        let stem = fileURL.deletingPathExtension().lastPathComponent
+        let dir  = fileURL.deletingLastPathComponent()
+        return dir.appendingPathComponent("\(stem)-\(connection.id.uuidString).png")
+    }
+
+    func deleteIcon(for connection: Connection) {
+        let url = iconURL(for: connection)
+        try? FileManager.default.removeItem(at: url)
     }
 }

@@ -1,10 +1,12 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @EnvironmentObject var store: ConnectionsStore
     @State private var showingAddSheet = false
     @State private var editingConnection: Connection?
+    @State private var deletingConnection: Connection?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -22,6 +24,25 @@ struct ContentView: View {
                 store.update(updated)
                 editingConnection = nil
             }
+        }
+        .confirmationDialog(
+            "Delete \"\(deletingConnection?.name ?? "")\"?",
+            isPresented: Binding(
+                get: { deletingConnection != nil },
+                set: { if !$0 { deletingConnection = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let conn = deletingConnection,
+                   let idx = store.connections.firstIndex(where: { $0.id == conn.id }) {
+                    store.remove(at: IndexSet(integer: idx))
+                }
+                deletingConnection = nil
+            }
+            Button("Cancel", role: .cancel) { deletingConnection = nil }
+        } message: {
+            Text("This connection will be permanently removed.")
         }
     }
 
@@ -67,6 +88,7 @@ struct ContentView: View {
                     ForEach(store.connections) { conn in
                         ConnectionRow(
                             connection: conn,
+                            iconURL: store.iconURL(for: conn),
                             onConnect: {
                                 let shouldQuit = store.settings.quitAfterConnect
                                 ThinLincClientLauncher.launch(connection: conn) { _ in
@@ -75,7 +97,9 @@ struct ContentView: View {
                                     }
                                 }
                             },
-                            onEdit: { editingConnection = conn }
+                            onEdit: { editingConnection = conn },
+                            onDelete: { deletingConnection = conn },
+                            onRemoveIcon: { store.deleteIcon(for: conn) }
                         )
                     }
                     .onDelete(perform: store.remove(at:))
@@ -106,15 +130,18 @@ struct ContentView: View {
 
 struct ConnectionRow: View {
     let connection: Connection
+    let iconURL: URL
     var onConnect: () -> Void
     var onEdit: () -> Void
+    var onDelete: () -> Void
+    var onRemoveIcon: () -> Void
+
+    @State private var loadedIcon: NSImage? = nil
+    @State private var isDropTargeted = false
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "server.rack")
-                .font(.title2)
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 28, alignment: .center)
+            ConnectionIconView(iconURL: iconURL, loadedIcon: $loadedIcon)
             VStack(alignment: .leading, spacing: 2) {
                 Text(connection.name.isEmpty ? "Unnamed" : connection.name)
                     .font(.headline)
@@ -133,8 +160,48 @@ struct ConnectionRow: View {
             .buttonStyle(.borderedProminent)
         }
         .padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .strokeBorder(isDropTargeted ? Color.accentColor : .clear, lineWidth: 2)
+                .animation(.easeInOut(duration: 0.15), value: isDropTargeted)
+        )
         .contentShape(Rectangle())
         .onDoubleClick { onConnect() }
+        .onDrop(of: [UTType.fileURL], isTargeted: $isDropTargeted, perform: handleImageDrop)
+        .contextMenu {
+            Button("Connect") { onConnect() }
+            Button("Edit") { onEdit() }
+            Divider()
+            Button("Remove Custom Icon", role: .destructive) {
+                onRemoveIcon()
+                loadedIcon = nil
+            }
+            Button("Delete Connection", role: .destructive) { onDelete() }
+        }
+    }
+
+    private func handleImageDrop(providers: [NSItemProvider]) -> Bool {
+        guard let provider = providers.first else { return false }
+
+        provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+            var fileURL: URL?
+            if let data = item as? Data {
+                fileURL = URL(dataRepresentation: data, relativeTo: nil)
+            } else if let url = item as? URL {
+                fileURL = url
+            } else if let str = item as? String {
+                fileURL = URL(string: str)
+            }
+
+            guard let url = fileURL else { return }
+            let ext = url.pathExtension.lowercased()
+            guard ["png", "jpg", "jpeg", "heic", "tiff", "bmp", "gif"].contains(ext) else { return }
+
+            if let saved = saveConnectionIcon(from: url, to: iconURL) {
+                DispatchQueue.main.async { loadedIcon = saved }
+            }
+        }
+        return true
     }
 }
 
@@ -161,7 +228,11 @@ extension View {
 }
 
 #Preview("Row") {
-    ConnectionRow(connection: Connection(name: "Demo", server: "demo.example.com", username: "user"), onConnect: {}, onEdit: {})
-        .frame(width: 380)
+    ConnectionRow(
+        connection: Connection(name: "Demo", server: "demo.example.com", username: "user"),
+        iconURL: URL(fileURLWithPath: "/tmp/demo-icon.png"),
+        onConnect: {}, onEdit: {}, onDelete: {}, onRemoveIcon: {}
+    )
+    .frame(width: 380)
 }
 #endif
