@@ -2,8 +2,48 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
+// Handles ↑/↓ arrow-key navigation independently of List focus.
+// Lives as a @StateObject so the NSEvent closure always sees current state.
+private final class ArrowKeyHandler: ObservableObject {
+    @Published var selectedId: UUID?
+    var connections: [Connection] = []
+    private var monitor: Any?
+
+    func start() {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            // Don't steal keys while a text field / text view has focus
+            guard !(NSApp.keyWindow?.firstResponder is NSText) else { return event }
+            switch event.keyCode {
+            case 126: self.move(-1); return nil   // ↑
+            case 125: self.move(+1); return nil   // ↓
+            default:  return event
+            }
+        }
+    }
+
+    func stop() {
+        if let m = monitor { NSEvent.removeMonitor(m); monitor = nil }
+    }
+
+    private func move(_ delta: Int) {
+        guard !connections.isEmpty else { return }
+        let idx: Int
+        if let sid = selectedId, let cur = connections.firstIndex(where: { $0.id == sid }) {
+            idx = max(0, min(connections.count - 1, cur + delta))
+        } else {
+            idx = delta > 0 ? 0 : connections.count - 1
+        }
+        DispatchQueue.main.async { self.selectedId = self.connections[idx].id }
+    }
+
+    deinit { stop() }
+}
+
 struct ContentView: View {
     @EnvironmentObject var store: ConnectionsStore
+    @StateObject private var keyNav = ArrowKeyHandler()
     @State private var showingAddSheet = false
     @State private var editingConnection: Connection?
     @State private var deletingConnection: Connection?
@@ -13,6 +53,23 @@ struct ContentView: View {
             toolbar
             Divider()
             connectionList
+        }
+        .onAppear {
+            keyNav.connections = store.connections
+            let saved = store.settings.lastConnectedId
+            if let saved, store.connections.contains(where: { $0.id == saved }) {
+                keyNav.selectedId = saved
+            } else {
+                keyNav.selectedId = store.connections.first?.id
+            }
+            keyNav.start()
+        }
+        .onDisappear { keyNav.stop() }
+        .onChange(of: store.connections) { newConnections in
+            keyNav.connections = newConnections
+            if let sid = keyNav.selectedId, !newConnections.contains(where: { $0.id == sid }) {
+                keyNav.selectedId = newConnections.last?.id
+            }
         }
         .sheet(isPresented: $showingAddSheet) {
             AddConnectionSheet { connection in
@@ -43,6 +100,30 @@ struct ContentView: View {
             Button("Cancel", role: .cancel) { deletingConnection = nil }
         } message: {
             Text("This connection will be permanently removed.")
+        }
+        // Window-level Return key — fires regardless of which control has focus
+        .background(
+            Button("") { connectSelected() }
+                .keyboardShortcut(.return, modifiers: [])
+                .opacity(0)
+                .allowsHitTesting(false)
+        )
+    }
+
+    private func connectSelected() {
+        guard let sid = keyNav.selectedId,
+              let conn = store.connections.first(where: { $0.id == sid }) else { return }
+        connect(conn)
+    }
+
+    private func connect(_ conn: Connection) {
+        store.settings.lastConnectedId = conn.id
+        store.saveSettings()
+        let shouldQuit = store.settings.quitAfterConnect
+        ThinLincClientLauncher.launch(connection: conn) { _ in
+            if shouldQuit {
+                NSApplication.shared.terminate(nil)
+            }
         }
     }
 
@@ -84,23 +165,17 @@ struct ContentView: View {
             if store.connections.isEmpty {
                 emptyState
             } else {
-                List {
+                List(selection: $keyNav.selectedId) {
                     ForEach(store.connections) { conn in
                         ConnectionRow(
                             connection: conn,
                             iconURL: store.iconURL(for: conn),
-                            onConnect: {
-                                let shouldQuit = store.settings.quitAfterConnect
-                                ThinLincClientLauncher.launch(connection: conn) { _ in
-                                    if shouldQuit {
-                                        NSApplication.shared.terminate(nil)
-                                    }
-                                }
-                            },
+                            onConnect: { connect(conn) },
                             onEdit: { editingConnection = conn },
                             onDelete: { deletingConnection = conn },
                             onRemoveIcon: { store.deleteIcon(for: conn) }
                         )
+                        .tag(conn.id)
                     }
                     .onDelete(perform: store.remove(at:))
                 }
