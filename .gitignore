@@ -1,0 +1,32 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Xcode build output
+build/
+DerivedData/
+*.xcuserstate
+
+# Xcode per-user settings (not needed for collaboration)
+xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# Swift Package Manager
+.swiftpm/
+.build/
+
+# DMGs and other distribution artifacts
+*.dmg
+dmg_staging/
+
+# v1 / PyInstaller artifacts
+dist/
+__pycache__/
+*.pyc
+venv/
+*.sh.bak
+
+# Large downloaded installers
+miniforge-*.sh
+temp.dmg
