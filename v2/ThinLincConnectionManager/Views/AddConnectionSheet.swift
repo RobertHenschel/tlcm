@@ -8,6 +8,9 @@ struct AddConnectionSheet: View {
     @State private var authType = "Password"
     @State private var authData = ""
     @State private var autoConnect = false
+    @State private var password = ""
+    @State private var savePassword = false
+    @State private var hadKeychainEntry = false
 
     private let editingId: UUID?
     var onSave: (Connection) -> Void
@@ -21,12 +24,21 @@ struct AddConnectionSheet: View {
             _username = State(initialValue: c.username)
             _authType = State(initialValue: c.authType)
             _authData = State(initialValue: c.authData)
-            // Auto-connect is only valid with key auth; correct any legacy data silently.
-            _autoConnect = State(initialValue: c.authType == "Password" ? false : c.autoConnect)
+            _autoConnect = State(initialValue: c.autoConnect)
+            if c.authType == "Password" {
+                let exists = KeychainHelper.hasPassword(for: c.id)
+                _hadKeychainEntry = State(initialValue: exists)
+                _savePassword = State(initialValue: exists)
+            }
         }
     }
 
     private var isEditing: Bool { editingId != nil }
+
+    private var canAutoConnect: Bool {
+        if authType == "Key" { return true }
+        return savePassword || hadKeychainEntry
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -43,9 +55,13 @@ struct AddConnectionSheet: View {
                 }
                 .onChange(of: authType) { newType in
                     if newType == "Password" {
-                        autoConnect = false
                         authData = ""
+                    } else {
+                        password = ""
+                        savePassword = false
+                        hadKeychainEntry = false
                     }
+                    if !canAutoConnect { autoConnect = false }
                 }
                 if authType == "Key" {
                     HStack {
@@ -54,10 +70,18 @@ struct AddConnectionSheet: View {
                             .buttonStyle(.bordered)
                     }
                 }
-                Toggle("Connect automatically", isOn: $autoConnect)
-                    .disabled(authType == "Password")
                 if authType == "Password" {
-                    Text("Auto-connect is not available with password authentication.")
+                    SecureField(hadKeychainEntry ? "Password (leave blank to keep)" : "Password",
+                                text: $password)
+                    Toggle("Save password in Keychain", isOn: $savePassword)
+                        .onChange(of: savePassword) { on in
+                            if !on { autoConnect = false }
+                        }
+                }
+                Toggle("Connect automatically", isOn: $autoConnect)
+                    .disabled(!canAutoConnect)
+                if authType == "Password" && !canAutoConnect {
+                    Text("Auto-connect requires a saved password.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -73,7 +97,7 @@ struct AddConnectionSheet: View {
             }
             .padding()
         }
-        .frame(width: 340, height: 380)
+        .frame(width: 340, height: 420)
     }
 
     private func browseForKey() {
@@ -92,14 +116,33 @@ struct AddConnectionSheet: View {
     }
 
     private func save() {
+        let id = editingId ?? UUID()
+
+        if authType == "Password" {
+            if savePassword && !password.isEmpty {
+                KeychainHelper.save(password: password, for: id)
+            } else if !savePassword {
+                KeychainHelper.delete(for: id)
+            }
+        } else {
+            if let eid = editingId { KeychainHelper.delete(for: eid) }
+        }
+
+        let effectiveAutoConnect: Bool
+        if authType == "Password" {
+            effectiveAutoConnect = autoConnect && (savePassword || hadKeychainEntry)
+        } else {
+            effectiveAutoConnect = autoConnect
+        }
+
         let conn = Connection(
-            id: editingId ?? UUID(),
+            id: id,
             name: name.trimmingCharacters(in: .whitespaces),
             server: server.trimmingCharacters(in: .whitespaces),
             username: username.trimmingCharacters(in: .whitespaces),
             authType: authType,
             authData: authType == "Password" ? "" : authData,
-            autoConnect: authType == "Password" ? false : autoConnect
+            autoConnect: effectiveAutoConnect
         )
         onSave(conn)
         dismiss()
@@ -109,11 +152,11 @@ struct AddConnectionSheet: View {
 #if DEBUG
 #Preview("Add") {
     AddConnectionSheet { _ in }
-        .frame(width: 340, height: 380)
+        .frame(width: 340, height: 420)
 }
 
 #Preview("Edit") {
     AddConnectionSheet(editing: Connection(name: "Demo", server: "demo.example.com", username: "user")) { _ in }
-        .frame(width: 340, height: 380)
+        .frame(width: 340, height: 420)
 }
 #endif

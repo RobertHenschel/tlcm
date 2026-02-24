@@ -15,6 +15,7 @@
 		A10000000000000000000005 /* AddConnectionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* AddConnectionSheet.swift */; };
 		A10000000000000000000006 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006 /* Assets.xcassets */; };
 		A10000000000000000000007 /* DropboxLocator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* DropboxLocator.swift */; };
+		A1000000000000000000000E /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000E /* KeychainHelper.swift */; };
 		A10000000000000000000008 /* ThinLincClientFinder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000008 /* ThinLincClientFinder.swift */; };
 		A10000000000000000000009 /* ThinLincClientLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000009 /* ThinLincClientLauncher.swift */; };
 		A1000000000000000000000A /* ThinLincNotFoundView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000A /* ThinLincNotFoundView.swift */; };
@@ -32,6 +33,7 @@
 		A20000000000000000000005 /* AddConnectionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddConnectionSheet.swift; sourceTree = "<group>"; };
 		A20000000000000000000006 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A20000000000000000000007 /* DropboxLocator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DropboxLocator.swift; sourceTree = "<group>"; };
+		A2000000000000000000000E /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
 		A20000000000000000000008 /* ThinLincClientFinder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThinLincClientFinder.swift; sourceTree = "<group>"; };
 		A20000000000000000000009 /* ThinLincClientLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThinLincClientLauncher.swift; sourceTree = "<group>"; };
 		A2000000000000000000000A /* ThinLincNotFoundView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThinLincNotFoundView.swift; sourceTree = "<group>"; };
@@ -95,6 +97,7 @@
 			children = (
 				A20000000000000000000004 /* ConnectionsStore.swift */,
 				A20000000000000000000007 /* DropboxLocator.swift */,
+				A2000000000000000000000E /* KeychainHelper.swift */,
 			);
 			path = Storage;
 			sourceTree = "<group>";
@@ -201,6 +204,7 @@
 				A10000000000000000000004 /* ConnectionsStore.swift in Sources */,
 				A10000000000000000000005 /* AddConnectionSheet.swift in Sources */,
 				A10000000000000000000007 /* DropboxLocator.swift in Sources */,
+				A1000000000000000000000E /* KeychainHelper.swift in Sources */,
 				A1000000000000000000000B /* AppSettings.swift in Sources */,
 				A10000000000000000000008 /* ThinLincClientFinder.swift in Sources */,
 				A10000000000000000000009 /* ThinLincClientLauncher.swift in Sources */,

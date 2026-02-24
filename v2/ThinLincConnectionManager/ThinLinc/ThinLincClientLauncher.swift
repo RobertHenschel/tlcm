@@ -40,19 +40,98 @@ enum ThinLincClientLauncher {
         }
     }
 
+    /// Directory for askpass scripts. Uses ~/.thinlinc/ (no spaces in path) because
+    /// tlclient's -P flag may pass the path through a shell, which breaks on spaces.
+    private static let askpassBase: URL = {
+        let dir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".thinlinc", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+
+    /// Writes an askpass shell script that retrieves the password from Keychain.
+    /// The script itself contains no password -- just a reference to the Keychain entry.
+    static func writeAskpassScript(for connection: Connection) -> URL? {
+        let safeName = connection.name
+            .replacingOccurrences(of: " ", with: "_")
+            .replacingOccurrences(of: "/", with: "-")
+        let fileName = safeName.isEmpty ? "connection" : safeName
+        let scriptURL = askpassBase.appendingPathComponent("askpass_\(fileName).sh", isDirectory: false)
+
+        let content = "#!/bin/bash\nsecurity find-generic-password -s \"ThinLincConnectionManager\" -a \"\(connection.id.uuidString)\" -w\n"
+        guard let data = content.data(using: .utf8) else { return nil }
+        do {
+            try data.write(to: scriptURL)
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
+            return scriptURL
+        } catch {
+            return nil
+        }
+    }
+
     /// Launches the ThinLinc client with the given connection, activating it in the foreground.
     /// The optional `completion` closure is called on the main thread once the client is running
     /// (or has failed to start), so it is safe to quit the app from there.
     static func launch(connection: Connection, completion: ((Bool) -> Void)? = nil) {
-        guard let appURL = ThinLincClientFinder.findThinLincApp(),
-              let configURL = writeConfig(for: connection) else {
+        guard let configURL = writeConfig(for: connection) else {
             completion?(false)
             return
         }
 
         var arguments: [String] = ["-C", configURL.path]
-        if connection.autoConnect {
+
+        let useAskpass = connection.autoConnect
+            && connection.authType == "Password"
+            && KeychainHelper.hasPassword(for: connection.id)
+
+        if useAskpass {
+            guard let scriptURL = writeAskpassScript(for: connection) else {
+                completion?(false)
+                return
+            }
+            arguments += ["-P", scriptURL.path]
+        } else if connection.autoConnect && connection.authType.lowercased().hasPrefix("key") {
             arguments += ["-p", "1"]
+        }
+
+        if useAskpass {
+            launchDirectBinary(arguments: arguments, completion: completion)
+        } else {
+            launchViaNSWorkspace(arguments: arguments, completion: completion)
+        }
+    }
+
+    /// Launch tlclient binary directly via Process. Required for -P (askpass) to work.
+    private static func launchDirectBinary(arguments: [String], completion: ((Bool) -> Void)?) {
+        guard let binaryURL = ThinLincClientFinder.findThinLincBinary() else {
+            DispatchQueue.main.async { completion?(false) }
+            return
+        }
+
+        let process = Process()
+        process.executableURL = binaryURL
+        process.arguments = arguments
+
+        do {
+            try process.run()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                if let app = NSRunningApplication.runningApplications(
+                    withBundleIdentifier: "se.cendio.tlclient"
+                ).last {
+                    app.activate(options: .activateIgnoringOtherApps)
+                }
+                completion?(true)
+            }
+        } catch {
+            DispatchQueue.main.async { completion?(false) }
+        }
+    }
+
+    /// Launch via NSWorkspace (standard macOS app launch). Used for non-askpass cases.
+    private static func launchViaNSWorkspace(arguments: [String], completion: ((Bool) -> Void)?) {
+        guard let appURL = ThinLincClientFinder.findThinLincApp() else {
+            DispatchQueue.main.async { completion?(false) }
+            return
         }
 
         let config = NSWorkspace.OpenConfiguration()
