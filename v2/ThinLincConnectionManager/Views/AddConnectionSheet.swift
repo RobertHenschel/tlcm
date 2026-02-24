@@ -11,6 +11,7 @@ struct AddConnectionSheet: View {
     @State private var password = ""
     @State private var savePassword = false
     @State private var hadKeychainEntry = false
+    @State private var showPassword = false
 
     private let editingId: UUID?
     var onSave: (Connection) -> Void
@@ -35,11 +36,6 @@ struct AddConnectionSheet: View {
 
     private var isEditing: Bool { editingId != nil }
 
-    private var canAutoConnect: Bool {
-        if authType == "Key" { return true }
-        return savePassword || hadKeychainEntry
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             Text(isEditing ? "Edit Connection" : "Add Connection")
@@ -60,8 +56,8 @@ struct AddConnectionSheet: View {
                         password = ""
                         savePassword = false
                         hadKeychainEntry = false
+                        showPassword = false
                     }
-                    if !canAutoConnect { autoConnect = false }
                 }
                 if authType == "Key" {
                     HStack {
@@ -69,19 +65,34 @@ struct AddConnectionSheet: View {
                         Button("Browse…") { browseForKey() }
                             .buttonStyle(.bordered)
                     }
+                    Toggle("Connect automatically", isOn: $autoConnect)
                 }
                 if authType == "Password" {
-                    SecureField(hadKeychainEntry ? "Password (leave blank to keep)" : "Password",
-                                text: $password)
-                    Toggle("Save password in Keychain", isOn: $savePassword)
+                    Toggle("Save to macOS Keychain", isOn: $savePassword)
                         .onChange(of: savePassword) { on in
-                            if !on { autoConnect = false }
+                            if !on {
+                                password = ""
+                                showPassword = false
+                            }
                         }
-                }
-                Toggle("Connect automatically", isOn: $autoConnect)
-                    .disabled(!canAutoConnect)
-                if authType == "Password" && !canAutoConnect {
-                    Text("Auto-connect requires a saved password.")
+                    HStack {
+                        if showPassword {
+                            TextField(hadKeychainEntry ? "Password (leave blank to keep)" : "Password",
+                                      text: $password)
+                        } else {
+                            SecureField(hadKeychainEntry ? "Password (leave blank to keep)" : "Password",
+                                        text: $password)
+                        }
+                        Button(action: { showPassword.toggle() }) {
+                            Image(systemName: showPassword ? "eye.slash" : "eye")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .disabled(!savePassword)
+                    Text(savePassword
+                         ? "Saved passwords are used to log in automatically."
+                         : "Without a saved password, the ThinLinc client will prompt you.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -97,7 +108,7 @@ struct AddConnectionSheet: View {
             }
             .padding()
         }
-        .frame(width: 340, height: 420)
+        .frame(width: 425, height: 420)
     }
 
     private func browseForKey() {
@@ -130,7 +141,7 @@ struct AddConnectionSheet: View {
 
         let effectiveAutoConnect: Bool
         if authType == "Password" {
-            effectiveAutoConnect = autoConnect && (savePassword || hadKeychainEntry)
+            effectiveAutoConnect = savePassword || hadKeychainEntry
         } else {
             effectiveAutoConnect = autoConnect
         }
@@ -152,11 +163,11 @@ struct AddConnectionSheet: View {
 #if DEBUG
 #Preview("Add") {
     AddConnectionSheet { _ in }
-        .frame(width: 340, height: 420)
+        .frame(width: 425, height: 420)
 }
 
 #Preview("Edit") {
     AddConnectionSheet(editing: Connection(name: "Demo", server: "demo.example.com", username: "user")) { _ in }
-        .frame(width: 340, height: 420)
+        .frame(width: 425, height: 420)
 }
 #endif
